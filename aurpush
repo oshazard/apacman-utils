@@ -1,0 +1,98 @@
+#!/bin/bash
+######################################################################
+# aurpush - AUR4 package uploader
+version="0.1"
+# Copyright OS Hazard <oshazard+aur@gmail.com>
+######################################################################
+
+
+# VARS
+pkgname="$1"
+aurver="aur4"
+
+
+# FUNCTIONS
+err() { echo "ERROR: $@"; exit 1; }
+
+deptest() { type -p $1 &>/dev/null; }
+
+create_pkg() {
+  maintainer_name=$(git config -l | grep ^user.name | awk -F = '{print $2}')
+  maintainer_email=$(git config -l | grep ^user.email | awk -F = '{print $2}')
+  [ -z "$maintainer_name" -o -z "$maintainer_email" ] && err "Run git config first"
+
+  git clone ssh://aur@${aurver}.archlinux.org/${pkgname}.git || err "Must copy public key to AUR first"
+
+  cd "$pkgname"
+  echo "# Maintainer: ${maintainer_name} <${maintainer_email}>" > PKGBUILD
+  echo "pkgname=${pkgname}" >> PKGBUILD
+  echo "pkgver=0.1" >> PKGBUILD
+  echo "pkgrel=1" >> PKGBUILD
+  echo "pkgdesc=""\"Description"\""" >> PKGBUILD
+  echo "url=""\"http://github.com/<USERNAME>/${pkgname}"\""" >> PKGBUILD
+  echo "license=""\"None"\""" >> PKGBUILD
+  echo "arch=('any')" >> PKGBUILD
+  echo "makedepends=('')" >> PKGBUILD
+  echo "depends=('')" >> PKGBUILD
+  echo "provides=('')" >> PKGBUILD
+  echo "source=(""\"https://github.com/<USERNAME>/${pkgname}/archive/master.tar.gz"\"")" >> PKGBUILD
+  echo "md5sums=('')" >> PKGBUILD
+  echo "" >> PKGBUILD
+  echo "package() {" >> PKGBUILD
+  echo "  cd ""\"\${srcdir}/${pkgname}-master"\""" >> PKGBUILD
+  echo "" >> PKGBUILD
+  echo "  # Install script" >> PKGBUILD
+  echo "  mkdir -p ""\"\$pkgdir/usr/bin"\""" >> PKGBUILD
+  echo "  install -m755 ${pkgname} ""\"\$pkgdir/usr/bin/${pkgname}"\""" >> PKGBUILD
+  echo "" >> PKGBUILD
+  echo "  # Install license" >> PKGBUILD
+  echo "  #mkdir -p ""\"\${pkgdir}/usr/share/licenses/${pkgname}"\""" >> PKGBUILD
+  echo "  #install -m644 LICENSE "\${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"" >> PKGBUILD
+  echo "}" >> PKGBUILD
+
+  echo "*.tar.*" > .gitignore
+
+  echo "==> cd $pkgname"
+  echo "==> Edit PKGBUILD"
+}
+
+update_pkg() {
+  mksrcinfo || err "Unable to create .SRCINFO"
+  git add -A || err "Unable to add files to git repo"
+  git commit -m "Package $pkgname submitted by aurpush" || err "Unable to create git commit"
+  git log
+  read -p "Confirm push (Y/n)? " input
+  if [[ "$input" = [Yy] ]]; then
+    git push origin master || err "Unable to push update to AUR"
+    echo "Uploaded $pkgname to AUR [SUCCESS]"
+  fi
+}
+
+
+# SANITY CHECKS
+[ ! -z "$pkgname" -o -f "PKGBUILD" ] || err "USAGE: $0 {[NONE]|[pkgname]}"
+
+deps="git makepkg mksrcinfo updpkgsums"
+for i in $deps; do
+  deptest $i || err "Missing dependency $i"
+done
+
+# PARSE
+if [ ! -z "$pkgname" ]; then
+  if [ ! -d "$pkgname" ]; then
+    create_pkg
+  else
+    err "Directory $pkgname already exists"
+  fi
+else
+  pkgname=$(basename $PWD)
+  updpkgsums || err "Unable to fetch source"
+  makepkg -c || err "Package failed to build"
+
+  read -p "==> Update package (Y/n)? " input
+  if [[ "$input" = [Yy] ]]; then
+    update_pkg
+  fi
+fi
+
+# END

@@ -1,0 +1,91 @@
+#!/bin/bash
+######################################################################
+# apac-migrate - AUR3 to AUR4 migration wizard
+version="0.3"
+# Copyright OS Hazard <oshazard+aur@gmail.com>
+######################################################################
+
+# depends: apacman git pkgbuild-introspection
+
+_maintainer="$1"
+_aurdir="/opt/aur"
+_tempdir="temp-dir"
+_git="ssh://aur@aur4.archlinux.org"
+_url="https://aur.archlinux.org/packages/?SeB=m&K=${_maintainer}"
+_pkgs=$(curl -s "$_url" | grep "<td><a href" | awk -F '">' '{print $2}' | awk -F "</a>" '{print $1}')
+
+err() { echo "ERROR: $@"; exit 1; }
+deptest() { type -p $1 &>/dev/null; }
+
+[ -z "$_maintainer" ] && err "USAGE: $0 [maintainer]"
+deptest apacman || err "requires: apacman"
+deptest git || err "requires: git"
+deptest mksrcinfo || err "requires: pkgbuild-introspection"
+
+if [[ $UID -eq 0 ]]; then
+  read -p "Create a new user (Y/n)? " input
+  if [[ "$input" = [Yy] ]]; then
+    read -p "Local username: " newuser
+    if [ ! -z "$newuser" ]; then
+      mkdir -p "${_aurdir}/${newuser}"
+      useradd -d "${_aurdir}/${newuser}" -G aur ${newuser} || err "unable to create user $newuser"
+      chown -R ${newuser}:aur "${_aurdir}/${newuser}"
+      echo "==> Re-running as $newuser with su"
+      su - $newuser -c "$0 $@"
+    fi
+  fi
+  exit 0
+fi
+
+mkdir -p "${_aurdir}/$USER" || err "unable to create ${_aurdir}/$USER"
+cd "${_aurdir}/$USER"
+
+read -p "Generate global gitconfig (Y/n)? " input
+if [[ "$input" = [Yy] ]]; then
+  read -p "GIT email: " gitmail
+  if [ ! -z "$gitmail" ]; then
+    git config --global user.name $_maintainer
+    git config --global user.email $gitmail
+  else
+    exit 1
+  fi
+fi
+
+read -p "Generate a new key (Y/n)? " input
+if [[ "$input" = [Yy] ]]; then
+  ssh-keygen
+  echo -e "\e[1;39m==> Copy public key to clipboard\e[0m"
+  echo ""
+  cat $HOME/.ssh/id_rsa.pub
+  echo ""
+  echo "Visit: https://aur4.archlinux.org/account/${_maintainer}/edit/"
+  echo -e "\e[1;39m==> Paste public key into profile\e[0m"
+fi
+
+read -p "I have saved the key to my profile (y/N): " input
+if [[ "$input" = [Yy] ]]; then
+  echo -e "\e[1;33m==> Fetching packages\e[0m"
+else
+  exit 1
+fi
+
+IFS=$(echo -en "\n\b");
+for pkg in $_pkgs;
+do
+  echo -e "\e[1;33m===> Downloading: $pkg\e[0m"
+  apacman --legacy -G "$pkg" || err "unable to fetch PKGBUILD"
+  rm "${pkg}.tar.gz"
+  mkdir "$_tempdir"
+  git clone "${_git}/${pkg}.git" "$_tempdir" || err "unable to fetch repo"
+  mv temp-dir/.git ${pkg}/.git
+  rm -rf "$_tempdir"
+  cd "$pkg" || err "unable to cd into $pkg directory"
+  mksrcinfo
+  git add -A || err "not a git repo"
+  git commit -m "Package imported by apac-migrate"
+  read -p "Confirm push (Y/n)? " input
+  if [[ "$input" = [Yy] ]]; then
+    git push origin master
+  fi
+  cd ..
+done
