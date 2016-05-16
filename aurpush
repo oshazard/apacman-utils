@@ -30,7 +30,7 @@ create_pkg() {
   echo "pkgrel=1" >> PKGBUILD
   echo "pkgdesc=""\"Description"\""" >> PKGBUILD
   echo "url=""\"http://github.com/<USERNAME>/${pkgname}"\""" >> PKGBUILD
-  echo "license=""\"None"\""" >> PKGBUILD
+  echo "license=(\"None\")" >> PKGBUILD
   echo "arch=('any')" >> PKGBUILD
   echo "makedepends=('')" >> PKGBUILD
   echo "depends=('')" >> PKGBUILD
